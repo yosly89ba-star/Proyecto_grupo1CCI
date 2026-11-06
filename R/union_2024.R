@@ -47,5 +47,5 @@ df24$anio <- anio
 cat("Filas RECH6:", nrow(rech6), "| filas df24:", nrow(df24), "| columnas:", ncol(df24), "\n")
 
 # 6. Guardar
-write_csv(df24, "datos_2024.csv", na = "")
+write_csv(df24, "data/processed/datos_2024.csv", na = "")
 
