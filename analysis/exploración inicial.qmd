@@ -42,7 +42,7 @@ La anemia infantil sigue siendo un problema prioritario de salud pública en el 
 | H4 | Los hijos de madres con anemia tienen mayor prevalencia de anemia. |
 | H5 | El agua, el desagüe y el combustible de cocina se asocian con la anemia. |
 | H6 | La anemia y sus predictores se distribuyen de forma similar en 2024 y 2025. |
-
+| H7 | La anemia es más frecuente en los niños de distritos con mayor pobreza monetaria. |
 # Fuentes de datos y consideraciones éticas
 
 **Fuente:** Encuesta Demográfica y de Salud Familiar (ENDES) 2024 (código 968) y 2025 (código 1036), Instituto Nacional de Estadística e Informática (INEI). Se integraron siete archivos por año (RECH6, RECH5, REC44, REC43, REC95, RECH0 y RECH23) con los scripts de la carpeta `R/`.
@@ -213,6 +213,43 @@ stopifnot(
 saveRDS(datos, file.path(raiz, "data/processed/anemia_curado.rds"))
 dim(datos)
 ```
+## Integración de la pobreza distrital
+
+Se incorpora la pobreza monetaria distrital del *Mapa de pobreza monetaria provincial y distrital 2018* del INEI, unida por el código UBIGEO del hogar. Es una fuente institucional agregada que aporta el contexto territorial. La unión es de muchos a uno (varios niños por distrito) y se audita para identificar los distritos sin dato.
+```{r}
+library(perupobreza2018)
+
+pobreza <- pobreza2018 |>
+  transmute(UBIGEO = sprintf("%06d", as.integer(ubigeo)),
+            pobreza_distrital = as.numeric(pobreza_monetaria))
+
+# Congelar una copia de la fuente externa (linaje)
+write_csv(pobreza, file.path(raiz, "data/raw/pobreza_distrital_2018.csv"))
+
+# Armonizar la clave en la ENDES (6 dígitos)
+datos <- datos |> mutate(UBIGEO = sprintf("%06d", as.integer(UBIGEO)))
+
+# Auditoría: niños cuyo distrito no está en el mapa de pobreza
+sin_pobreza <- anti_join(datos, pobreza, by = "UBIGEO")
+nrow(sin_pobreza)
+unique(sin_pobreza$UBIGEO)
+
+# Unión con cardinalidad declarada
+n0 <- nrow(datos)
+datos <- datos |>
+  left_join(pobreza, by = "UBIGEO", relationship = "many-to-one")
+stopifnot("La unión cambió el número de niños" = nrow(datos) == n0)
+
+anotar("D09", "Se une la pobreza monetaria distrital 2018 del INEI por UBIGEO",
+       "Aporta el contexto territorial del distrito",
+       "Usar solo el departamento (pierde la variación dentro de cada región)",
+       n0, nrow(datos))
+
+saveRDS(datos, file.path(raiz, "data/processed/anemia_curado.rds"))
+summary(datos$pobreza_distrital)
+```
+La auditoría no encontró niños sin dato: los distritos de los 35 974 niños figuran en el mapa de pobreza, y la unión no modificó el número de registros. La pobreza monetaria distrital varía entre 0,05 % y 81 %, con una mediana de 18,7 %. **Limitación:** el mapa de pobreza corresponde a 2018 y la ENDES a 2024–2025, por lo que la variable refleja la pobreza estructural del distrito y no su situación en el año de la encuesta.
+
 ## Registro de decisiones
 ```{r}
 knitr::kable(registro)
@@ -349,11 +386,30 @@ datos |>
 
 **Conclusión provisional:** la evidencia **apoya la H6**. La población y la distribución de los predictores son estables entre años, por lo que la validación del modelo entrenado con 2024 en los datos de 2025 medirá principalmente su estabilidad temporal y no un cambio en la población. Sin embargo, la caída de la anemia en las zonas de mayor altitud podría afectar la calibración del modelo en ese grupo, por lo que su desempeño se evaluará por separado.
 
+## H7. Pobreza del distrito
+```{r}
+datos |>
+  mutate(pobreza_cat = cut(pobreza_distrital, c(0, 10, 20, 40, 100),
+                           labels = c("< 10 %", "10–19 %", "20–39 %", "≥ 40 %"),
+                           include.lowest = TRUE)) |>
+  prevalencia(pobreza_cat) |>
+  ggplot(aes(pobreza_cat, prevalencia)) +
+  geom_col(fill = "#2a6f97") +
+  geom_text(aes(label = paste0(round(prevalencia, 1), " %  (n = ", n, ")")),
+            vjust = -0.5, size = 3.5) +
+  labs(title = "Anemia según la pobreza monetaria del distrito",
+       x = "Pobreza monetaria del distrito (2018)",
+       y = "Prevalencia de anemia (%)") +
+  theme_minimal()
+```
+**Patrón observado:** en los distritos con menos de 20 % de pobreza monetaria la prevalencia de anemia es similar (29,0 % y 28,9 %), pero aumenta a 36,7 % en los distritos con 20 % a 39 % de pobreza y a 43,4 % en los que tienen 40 % o más. Los niños de los distritos más pobres tienen alrededor de 1,5 veces más anemia que los de los distritos menos pobres. Todos los grupos tienen más de 6 000 niños, por lo que las estimaciones son estables.
+
+**Conclusión provisional:** la evidencia **apoya la H7**. La pobreza del distrito se asocia con la anemia infantil, con un efecto que aparece a partir del 20 % de pobreza. Esta variable aporta contexto territorial que no capta el quintil de riqueza del hogar, aunque ambas están relacionadas; en el modelo se evaluará si mantiene su capacidad predictiva junto con el quintil, el área y la altitud. Debe considerarse que el mapa de pobreza es de 2018.
 
 # Hallazgos y decisiones para la Unidad II
 
 - **Variable respuesta:** `anemia` (HC57). La prevalencia ponderada es de 33,8 % (2024) y 33,6 % (2025). La variable `anemia_oms` (HC57A) se usará solo como análisis de sensibilidad.
-- **Variables que pasan al modelado:** edad, sexo, desnutrición crónica, peso para la talla, orden de nacimiento, diarrea; edad, IMC, educación y anemia de la madre; `madre_situacion`; quintil de riqueza, agua, desagüe y combustible de cocina; área, altitud (en categorías) y departamento. Queda pendiente unir la pobreza distrital por UBIGEO.
+- **Variables que pasan al modelado:** edad, sexo, desnutrición crónica, peso para la talla, orden de nacimiento, diarrea; edad, IMC, educación y anemia de la madre; `madre_situacion`; quintil de riqueza, agua, desagüe y combustible de cocina; área, altitud (en categorías) y departamento. Se incorpora la pobreza monetaria distrital (INEI, 2018).
 - **Variables excluidas como predictores:** la hemoglobina (`hb_ajustada`), porque define la anemia (fuga de información), y el consumo de hierro (`hierro_7d`), por causalidad inversa: los niños con anemia reciben hierro.
 - **Desbalance de clases:** alrededor de 1 de cada 3 niños tiene anemia. Es un desbalance moderado que se considerará al elegir el umbral de clasificación y las métricas (sensibilidad, AUC).
 - **Colinealidad:** el área de residencia y el quintil de riqueza están muy relacionados (el 77 % de los niños rurales pertenece al quintil más pobre).

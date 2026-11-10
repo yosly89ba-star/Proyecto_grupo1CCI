@@ -1,4 +1,4 @@
-﻿variable,descripcion,tipo,unidad_escala,valores_validos,fuente,transformacion
+variable,descripcion,tipo,unidad_escala,valores_validos,fuente,transformacion
 id_nino,Identificador seudónimo del niño,texto,-,N00001...,Derivada,Correlativo tras ordenar por anio + HHID + HC0; reemplaza HHID y CASEID
 anio,Año de la encuesta,entero,año,2024; 2025,Script de unión,Ninguna
 conglomerado,Conglomerado de la muestra,entero,código,1-...,RECH0.HV001,Ninguna (solo para el diseño muestral)
@@ -32,3 +32,4 @@ area,Área de residencia,factor,categorías,Urbana; Rural,RECH0.HV025,Etiquetado
 departamento,Departamento de residencia,factor,categorías,25 departamentos,RECH0.HV024,Código 1-25 a nombre
 altitud_m,Altitud del conglomerado,entero,m s. n. m.,-24 a 5100,RECH0.HV040,Ninguna
 altitud_cat,Altitud agrupada,factor,categorías,<1000; 1000-2499; 2500-3499; >=3500,RECH0.HV040,cut() de altitud_m
+pobreza_distrital,Pobreza monetaria del distrito,numérico,%,0-100,INEI Mapa de pobreza 2018 (paquete perupobreza2018),Punto medio del IC 95 %; unido por UBIGEO
