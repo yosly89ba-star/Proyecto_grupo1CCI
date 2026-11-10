@@ -1,0 +1,34 @@
+﻿variable,descripcion,tipo,unidad_escala,valores_validos,fuente,transformacion
+id_nino,Identificador seudónimo del niño,texto,-,N00001...,Derivada,Correlativo tras ordenar por anio + HHID + HC0; reemplaza HHID y CASEID
+anio,Año de la encuesta,entero,año,2024; 2025,Script de unión,Ninguna
+conglomerado,Conglomerado de la muestra,entero,código,1-...,RECH0.HV001,Ninguna (solo para el diseño muestral)
+estrato,Estrato de la muestra,entero,código,1-250,RECH0.HV022,Ninguna (solo para el diseño muestral)
+peso,Factor de ponderación,numérico,factor,>0,RECH0.HV005,HV005 / 1 000 000
+UBIGEO,Código del distrito,texto,6 dígitos,010101-250401,RECH0.UBIGEO,Relleno con ceros a 6 dígitos; se retira tras unir la pobreza distrital
+anemia,Anemia del niño (variable respuesta),binaria,0/1,0 = sin anemia; 1 = leve/moderada/grave,RECH6.HC57,1 si HC57 en 1:3; 0 si HC57 = 4
+anemia_oms,Anemia según directriz OMS 2024 (sensibilidad),binaria,0/1,0; 1; NA,RECH6.HC57A,1 si HC57A en 1:3; no es predictor
+hb_ajustada,Hemoglobina ajustada por altitud,numérico,g/dL,3-20,RECH6.HC56,HC56 / 10; no es predictor (fuga de información)
+edad_meses,Edad del niño,entero,meses,6-59,RECH6.HC1,Filtro 6-59 meses
+edad_grupo,Grupo de edad,factor,categorías,6-11; 12-23; 24-35; 36-59,RECH6.HC1,cut() de edad_meses
+sexo,Sexo del niño,factor,categorías,Hombre; Mujer,RECH6.HC27,1 = Hombre; 2 = Mujer
+z_talla_edad,Puntaje Z talla para la edad (OMS),numérico,DE,-6 a 6,RECH6.HC70,HC70 / 100; 9996-9998 a NA
+z_peso_talla,Puntaje Z peso para la talla (OMS),numérico,DE,-6 a 6,RECH6.HC72,HC72 / 100; 9996-9998 a NA
+z_implausible,Medida antropométrica marcada como implausible,lógica,TRUE/FALSE,TRUE; FALSE,RECH6.HC70/HC72,TRUE si el código original era 9996-9998
+desnutricion_cronica,Desnutrición crónica,binaria,0/1,0; 1; NA,Derivada de HC70,1 si z_talla_edad < -2
+orden_nac,Orden de nacimiento,entero,orden,1-...,RECH6.HC64,Ninguna
+diarrea,Diarrea en los últimos 14 días,binaria,0/1,0; 1; NA,REC43.H11,8 (no sabe) a NA
+hierro_7d,Tomó hierro en los últimos 7 días,binaria,0/1,0; 1; NA,REC95.S465EA/EC/ED,1 si tomó en jarabe gotas u otra presentación
+madre_situacion,Situación de la madre respecto a la entrevista,factor,categorías,Entrevistada; No vive en el hogar; No de facto o entrevista incompleta; Sin entrevista vinculada,RECH6.HC60 + REC44.CASEID,Convierte el NA de datos maternos en información
+educ_madre,Nivel educativo de la madre,factor,categorías,Sin educación; Primaria; Secundaria; Superior,RECH6.HC61,8 (no sabe) a NA
+edad_madre,Edad de la madre,entero,años,12-49,RECH5.HA1,Ninguna
+imc_madre,Índice de masa corporal de la madre,numérico,kg/m²,12-60,RECH5.HA40,HA40 / 100; 9998 a NA
+anemia_madre,Anemia de la madre,binaria,0/1,0; 1; NA,RECH5.HA57,1 si HA57 en 1:3
+miembros_hogar,Total de personas en el hogar,entero,personas,1-25,RECH0.HV009,Ninguna
+quintil,Quintil de riqueza,factor ordenado,quintil,Q1 más pobre ... Q5 más rico,RECH23.HV270,Etiquetado
+agua_red,Agua para beber de red pública o pilón,binaria,0/1,0; 1; NA,RECH23.HV201,1 si HV201 en 11:13
+desague_red,Desagüe por red pública,binaria,0/1,0; 1; NA,RECH23.HV205,1 si HV205 en 11:12
+combustible_solido,Cocina con combustible sólido,binaria,0/1,0; 1; NA,RECH23.HV226,1 si HV226 en 5:10 (carbón; leña; arbustos; residuos; bosta)
+area,Área de residencia,factor,categorías,Urbana; Rural,RECH0.HV025,Etiquetado
+departamento,Departamento de residencia,factor,categorías,25 departamentos,RECH0.HV024,Código 1-25 a nombre
+altitud_m,Altitud del conglomerado,entero,m s. n. m.,-24 a 5100,RECH0.HV040,Ninguna
+altitud_cat,Altitud agrupada,factor,categorías,<1000; 1000-2499; 2500-3499; >=3500,RECH0.HV040,cut() de altitud_m

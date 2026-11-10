@@ -1,25 +1,375 @@
 ---
-title: "prediccción anemia"
-format: html
+title: "Protocolo de preparación de datos: anemia en niños de 6 a 59 meses"
+subtitle: "ENDES 2024–2025 · Producto de la Unidad I"
+author:
+  - Lourdes Barturen Sánchez
+  - Ivonne Musayón Oblitas
+  - Luis Rueda Milachay
+format:
+  html:
+    toc: true
+    number-sections: true
+    embed-resources: true
+    code-fold: true
+    code-summary: "Ver código"
+execute:
+  warning: false
+  message: false
+lang: es
 ---
 
-## Quarto
+```{r}
+#| label: setup
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+raiz <- ".."
+```
+# Contexto y pregunta de investigación
 
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+La anemia infantil sigue siendo un problema prioritario de salud pública en el Perú. Según la ENDES, el 43,7 % de los niños de 6 a 35 meses tenía anemia en 2024 y el 43,4 % en 2025 (INEI, 2025, 2026). La anemia no se distribuye de manera homogénea: es mayor en zonas de altura, en el área rural y en los hogares más pobres. Los estudios que predicen la anemia con aprendizaje automático solo han usado validación interna, y en el Perú no se ha evaluado si un modelo entrenado con una edición de la ENDES mantiene su desempeño en la siguiente.
 
-## Running Code
+**Pregunta de investigación:** ¿Qué factores individuales, maternos, del hogar y del entorno predicen la anemia en niños peruanos de 6 a 59 meses, y en qué medida el modelo entrenado con la ENDES 2024 mantiene su desempeño al validarse con la ENDES 2025?
 
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+**Variable respuesta:** anemia = 1 si el niño tiene anemia leve, moderada o grave según la hemoglobina ajustada por altitud (HC57, RM 363-2022-MINSA); 0 si no tiene anemia.
+
+| Hipótesis | Enunciado |
+|---|---|
+| H1 | La anemia es más frecuente en los niños de 6 a 23 meses. |
+| H2 | La anemia aumenta con la altitud de residencia. |
+| H3 | La anemia disminuye al aumentar el quintil de riqueza. |
+| H4 | Los hijos de madres con anemia tienen mayor prevalencia de anemia. |
+| H5 | El agua, el desagüe y el combustible de cocina se asocian con la anemia. |
+| H6 | La anemia y sus predictores se distribuyen de forma similar en 2024 y 2025. |
+
+# Fuentes de datos y consideraciones éticas
+
+**Fuente:** Encuesta Demográfica y de Salud Familiar (ENDES) 2024 (código 968) y 2025 (código 1036), Instituto Nacional de Estadística e Informática (INEI). Se integraron siete archivos por año (RECH6, RECH5, REC44, REC43, REC95, RECH0 y RECH23) con los scripts de la carpeta `R/`.
+
+**Linaje de los datos:** microdatos crudos en `data/raw/` → scripts de unión → `datos_2024_2025.csv` → limpieza en este documento → `anemia_curado.rds`.
+
+**Diagnóstico FAIR**
+
+| Principio | Resultado | Evidencia | Acción de mejora |
+|---|---|---|---|
+| F · Localizable | Parcial | Código de encuesta (968 y 1036), ficha técnica y diccionarios; sin DOI | Citar el código y la fecha de descarga |
+| A · Accesible | Sí | Descarga gratuita por HTTPS desde el portal del INEI | Documentar la ruta de descarga en el README |
+| I · Interoperable | Parcial | CSV abierto y nomenclatura DHS; valores sin punto decimal, códigos especiales y diccionarios en PDF | Crear un diccionario de datos en CSV |
+| R · Reutilizable | Parcial | Diseño muestral documentado; sin licencia abierta; cambios entre años | Registrar cada decisión en este documento y citar al INEI |
+
+**Consideraciones éticas:** son datos de salud de menores de edad, protegidos por la Ley N.° 29733. El INEI los publica anonimizados y la medición de hemoglobina cuenta con consentimiento de la madre, el padre o el responsable. No se usan las coordenadas de los conglomerados, se eliminan los identificadores del hogar y de la entrevistada, y los microdatos no se suben al repositorio. Los resultados se presentan de forma agregada.
+
+# Limpieza e integración
+
 
 ```{r}
-1 + 1
+crudo <- read_csv(file.path(raiz, "data/processed/datos_2024_2025.csv"),
+                  col_types = cols(.default = col_character()))
+
+registro <- tibble(Paso = character(), Decision = character(),
+                   Justificacion = character(), Alternativa = character(),
+                   Antes = integer(), Despues = integer())
+
+anotar <- function(paso, decision, justificacion, alternativa, antes, despues) {
+  registro <<- add_row(registro, Paso = paso, Decision = decision,
+                       Justificacion = justificacion, Alternativa = alternativa,
+                       Antes = antes, Despues = despues)
+}
+
+stopifnot("Hay niños repetidos" = !any(duplicated(crudo[c("anio", "HHID", "HC0")])))
+nrow(crudo)
+table(crudo$anio)
 ```
+## Población de estudio
 
-You can add options to executable code like this 
-
+Se incluyen los niños de 6 a 59 meses con hemoglobina medida. Los menores de 6 meses se excluyen porque no se les mide la hemoglobina (faltante estructural), y no se imputa la anemia porque es la variable respuesta.
 ```{r}
-#| echo: false
-2 * 2
-```
+llaves <- c("HHID", "CASEID", "UBIGEO")
+df <- crudo |>
+  mutate(across(-all_of(llaves), ~ suppressWarnings(as.numeric(.x))))
+anotar("D01", "Variables de texto a número",
+       "Se leyeron como texto para unir sin perder ceros iniciales",
+       "Dejar que R adivine los tipos", nrow(df), nrow(df))
 
-The `echo: false` option disables the printing of code (only output is displayed).
+n0 <- nrow(df)
+df <- df |> filter(between(HC1, 6, 59))
+anotar("D02", "Se excluyen los menores de 6 meses",
+       "No se les mide hemoglobina: faltante estructural",
+       "Imputar su anemia", n0, nrow(df))
+
+n0 <- nrow(df)
+df <- df |> filter(HC55 == 0, HC57 %in% 1:4)
+anotar("D03", "Solo niños con hemoglobina medida",
+       "La anemia es la variable respuesta; no se imputa",
+       "Imputar la anemia de ausentes o rechazos", n0, nrow(df))
+
+registro
+table(df$anio)
+```
+## Valores centinela y faltantes
+
+El INEI usa códigos especiales que no son datos reales: 9996–9998 en los puntajes Z (medidas implausibles), 9998 en el IMC y 8 en las respuestas "no sabe". Se convierten en NA. Además, la hemoglobina, el IMC y los puntajes Z vienen sin punto decimal (132 = 13,2 g/dL), por lo que se reescalan.
+
+Los niños sin datos de la madre no se eliminan: se crea la variable `madre_situacion`, porque ese NA indica que la madre no vive en el hogar o no fue entrevistada. Es información, no ausencia de ella.
+```{r}
+n_z <- sum(df$HC70 >= 9996 | df$HC72 >= 9996, na.rm = TRUE)
+
+df <- df |>
+  mutate(
+    z_implausible = coalesce(HC70 >= 9996, FALSE) | coalesce(HC72 >= 9996, FALSE),
+    across(c(HC70, HC71, HC72, HC73), ~ if_else(.x >= 9996, NA_real_, .x / 100)),
+    HA40 = if_else(HA40 >= 9998, NA_real_, HA40 / 100),
+    across(c(HC53, HC56, HC56A, HA53, HA56), ~ if_else(.x >= 990, NA_real_, .x / 10)),
+    HC61 = na_if(HC61, 8),
+    across(c(H11, H22, S466, S465EA, S465EC, S465ED), ~ na_if(.x, 8)),
+    peso = HV005 / 1e6,
+    madre_situacion = case_when(
+      HC60 == 995       ~ "No vive en el hogar",
+      HC60 %in% 993:994 ~ "No de facto o entrevista incompleta",
+      is.na(CASEID)     ~ "Sin entrevista vinculada",
+      TRUE              ~ "Entrevistada"))
+
+anotar("D04", "Z-scores 9996-9998 pasan a NA y se marcan con z_implausible",
+       "El INEI los marca como fuera de límites plausibles",
+       "Eliminar a esos niños (su anemia sí es válida)", nrow(df), nrow(df))
+anotar("D05", "Respuesta 8 (no sabe) a NA; decimales reescalados",
+       "Son códigos centinela; 132 significa 13,2 g/dL",
+       "Tratar el 8 como una categoría más", nrow(df), nrow(df))
+anotar("D06", "Se crea madre_situacion en lugar de eliminar casos",
+       "El NA materno indica que la madre no vive en el hogar",
+       "Eliminar los niños sin datos de la madre (sesgo)", nrow(df), nrow(df))
+
+n_z
+table(df$madre_situacion, df$anio)
+summary(df$HC56)
+```
+# Ingeniería de características
+
+Se crean variables interpretables a partir de los códigos del INEI: la variable respuesta (anemia), grupos de edad, desnutrición crónica (talla para la edad < −2 DE), condiciones de la vivienda y altitud agrupada. Se eliminan los identificadores del hogar y de la entrevistada para proteger los datos de los menores.
+```{r}
+departamentos <- c("Amazonas", "Áncash", "Apurímac", "Arequipa", "Ayacucho",
+                   "Cajamarca", "Callao", "Cusco", "Huancavelica", "Huánuco",
+                   "Ica", "Junín", "La Libertad", "Lambayeque", "Lima", "Loreto",
+                   "Madre de Dios", "Moquegua", "Pasco", "Piura", "Puno",
+                   "San Martín", "Tacna", "Tumbes", "Ucayali")
+
+datos <- df |>
+  arrange(anio, HHID, HC0) |>
+  mutate(
+    id_nino     = sprintf("N%05d", row_number()),
+    anemia      = as.integer(HC57 %in% 1:3),
+    anemia_oms  = if_else(HC57A %in% 1:4, as.integer(HC57A %in% 1:3), NA_integer_),
+    hb_ajustada = HC56,
+    edad_meses  = HC1,
+    edad_grupo  = cut(HC1, c(6, 12, 24, 36, 60), right = FALSE,
+                      labels = c("6-11", "12-23", "24-35", "36-59")),
+    sexo        = factor(HC27, 1:2, c("Hombre", "Mujer")),
+    z_talla_edad = HC70,
+    z_peso_talla = HC72,
+    desnutricion_cronica = if_else(is.na(HC70), NA_integer_, as.integer(HC70 < -2)),
+    orden_nac   = HC64,
+    diarrea     = H11,
+    hierro_7d   = pmax(S465EA, S465EC, S465ED, na.rm = TRUE),
+    educ_madre  = factor(HC61, 0:3, c("Sin educación", "Primaria", "Secundaria", "Superior")),
+    edad_madre  = HA1,
+    imc_madre   = HA40,
+    anemia_madre = if_else(HA57 %in% 1:4, as.integer(HA57 %in% 1:3), NA_integer_),
+    miembros_hogar = HV009,
+    quintil     = factor(HV270, 1:5, c("Q1 más pobre", "Q2", "Q3", "Q4", "Q5 más rico")),
+    agua_red    = if_else(is.na(HV201), NA_integer_, as.integer(HV201 %in% 11:13)),
+    desague_red = if_else(is.na(HV205), NA_integer_, as.integer(HV205 %in% 11:12)),
+    combustible_solido = if_else(is.na(HV226), NA_integer_, as.integer(HV226 %in% 5:10)),
+    area        = factor(HV025, 1:2, c("Urbana", "Rural")),
+    departamento = factor(departamentos[HV024], levels = departamentos),
+    altitud_m   = HV040,
+    altitud_cat = cut(HV040, c(-Inf, 1000, 2500, 3500, Inf), right = FALSE,
+                      labels = c("<1000", "1000-2499", "2500-3499", ">=3500")),
+    conglomerado = HV001,
+    estrato     = HV022) |>
+  select(id_nino, anio, conglomerado, estrato, peso, UBIGEO,
+         anemia, anemia_oms, hb_ajustada, edad_meses, edad_grupo, sexo,
+         z_talla_edad, z_peso_talla, z_implausible, desnutricion_cronica,
+         orden_nac, diarrea, hierro_7d, madre_situacion, educ_madre,
+         edad_madre, imc_madre, anemia_madre, miembros_hogar, quintil,
+         agua_red, desague_red, combustible_solido, area, departamento,
+         altitud_m, altitud_cat)
+
+anotar("D07", "Variables derivadas (anemia, edad, desnutrición, vivienda, altitud)",
+       "Convierten los códigos del INEI en variables interpretables",
+       "Usar los códigos originales", nrow(datos), nrow(datos))
+anotar("D08", "Se eliminan HHID y CASEID y se crea id_nino",
+       "Protección de datos de menores (Ley N.° 29733)",
+       "Conservar los identificadores del INEI", nrow(datos), nrow(datos))
+
+# Reglas de validación: si alguna falla, el código se detiene
+stopifnot(
+  "R1: anemia 0/1"              = all(datos$anemia %in% 0:1),
+  "R2: edad 6 a 59 meses"       = all(between(datos$edad_meses, 6, 59)),
+  "R3: Hb entre 3 y 20 g/dL"    = all(between(datos$hb_ajustada, 3, 20), na.rm = TRUE),
+  "R4: peso muestral positivo"  = all(datos$peso > 0),
+  "R5: un id por niño"          = !any(duplicated(datos$id_nino)))
+
+saveRDS(datos, file.path(raiz, "data/processed/anemia_curado.rds"))
+dim(datos)
+```
+## Registro de decisiones
+```{r}
+knitr::kable(registro)
+```
+# Análisis exploratorio orientado a hipótesis
+
+Las prevalencias se calculan ponderadas con el factor de expansión del INEI, para que representen a la población peruana.
+```{r}
+prevalencia <- function(data, ...) {
+  data |>
+    group_by(...) |>
+    summarise(n = n(),
+              prevalencia = 100 * weighted.mean(anemia, peso),
+              .groups = "drop")
+}
+prevalencia(datos, anio)
+```
+La prevalencia ponderada de anemia fue de 33,8 % en 2024 y 33,6 % en 2025: prácticamente estable entre años.
+
+## H1. Edad del niño
+```{r}
+prevalencia(datos, anio, edad_grupo) |>
+  ggplot(aes(edad_grupo, prevalencia, fill = factor(anio))) +
+  geom_col(position = "dodge") +
+  labs(title = "Prevalencia de anemia según edad del niño",
+       x = "Edad (meses)", y = "Prevalencia de anemia (%)", fill = "Año") +
+  theme_minimal()
+```
+**Patrón observado:** la prevalencia de anemia disminuye de forma marcada con la edad. Es más alta en los niños de 6 a 11 meses (alrededor de 67 %), baja a cerca de 47 % entre los 12 y 23 meses, a 29 % entre los 24 y 35 meses y a 21 % entre los 36 y 59 meses. Es decir, el riesgo en los menores de un año es tres veces mayor que en los niños de 3 a 4 años. El patrón es prácticamente idéntico en 2024 y 2025.
+
+**Conclusión provisional:** la evidencia **apoya la H1**. La edad es un predictor fuerte de la anemia y debe incluirse en el modelo. El periodo de 6 a 23 meses concentra el mayor riesgo, lo que coincide con la etapa en que las reservas de hierro del nacimiento se agotan y la alimentación complementaria no siempre cubre los requerimientos.
+
+## H2. Altitud de residencia
+```{r}
+prevalencia(datos, anio, altitud_cat) |>
+  ggplot(aes(altitud_cat, prevalencia, fill = factor(anio))) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = round(prevalencia, 1)),
+            position = position_dodge(0.9), vjust = -0.4, size = 3.5) +
+  labs(title = "Prevalencia de anemia según altitud",
+       x = "Altitud (m s. n. m.)", y = "Prevalencia de anemia (%)", fill = "Año") +
+  theme_minimal()
+```
+**Patrón observado:** la prevalencia de anemia no aumenta de forma continua con la altitud. Por debajo de 2 500 m se mantiene entre 28 % y 30 %, pero sube a 39 % entre 2 500 y 3 499 m y alcanza 62,5 % (2024) y 58,5 % (2025) a partir de los 3 500 m: más del doble que en la costa. El grupo de mayor altitud es el único en el que la prevalencia cambió entre años (4 puntos menos en 2025).
+
+**Conclusión provisional:** la evidencia **apoya parcialmente la H2**. La relación no es lineal: el riesgo se concentra por encima de los 2 500 m. Como la hemoglobina ya está ajustada por altitud, la brecha puede reflejar otros factores asociados a las zonas altoandinas (pobreza, ruralidad) o un posible sobreajuste de la corrección por altitud, como advierten Gonzales y Suarez Moreno (2024). Para el modelo conviene usar la altitud en categorías o con una relación no lineal, y evaluar el desempeño por separado en este grupo.
+
+## H3. Quintil de riqueza y área de residencia
+```{r}
+prevalencia(datos, quintil, area) |>
+  filter(n >= 30) |>
+  ggplot(aes(quintil, prevalencia, colour = area, group = area)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2.5) +
+  geom_text(aes(label = round(prevalencia, 1)), vjust = -0.8, size = 3.5,
+            show.legend = FALSE) +
+  labs(title = "Prevalencia de anemia según quintil de riqueza y área",
+       subtitle = "Solo grupos con 30 niños o más",
+       x = "Quintil de riqueza", y = "Prevalencia de anemia (%)", colour = "Área") +
+  theme_minimal()
+```
+```{r}
+prevalencia(datos, quintil, area) |>
+  mutate(prevalencia = round(prevalencia, 1)) |>
+  knitr::kable()
+```
+**Patrón observado:** la prevalencia de anemia disminuye de forma sostenida a medida que aumenta el quintil de riqueza. En el área urbana pasa de 43,3 % en el quintil más pobre a 22,1 % en el más rico. En el área rural baja de 44,3 % a 18,6 % en el cuarto quintil. El quintil más rico del área rural tiene solo 2 niños, por lo que su prevalencia (0 %) no es confiable y se excluyó del gráfico. En los quintiles más pobres la anemia es casi igual en ambas áreas (43,3 % y 44,3 %).
+
+**Conclusión provisional:** la evidencia **apoya la H3**. Existe un gradiente socioeconómico claro: los niños del quintil más pobre tienen el doble de anemia que los del más rico. Además, el 77 % de los niños rurales pertenece al quintil más pobre, mientras que casi no hay niños rurales en los quintiles altos. Esto indica que la brecha urbano-rural se explica en gran parte por la pobreza, y que el área y el quintil están fuertemente relacionados, lo que se tendrá en cuenta como posible colinealidad en el modelo.
+
+
+## H4. Anemia de la madre
+```{r}
+datos |>
+  mutate(anemia_madre = case_when(anemia_madre == 1 ~ "Madre con anemia",
+                                  anemia_madre == 0 ~ "Madre sin anemia",
+                                  TRUE ~ "Sin dato de la madre")) |>
+  prevalencia(anemia_madre) |>
+  ggplot(aes(anemia_madre, prevalencia)) +
+  geom_col(fill = "#2a6f97") +
+  geom_text(aes(label = paste0(round(prevalencia, 1), " %  (n = ", n, ")")),
+            vjust = -0.5, size = 3.5) +
+  labs(title = "Anemia del niño según anemia de la madre",
+       x = NULL, y = "Prevalencia de anemia en el niño (%)") +
+  theme_minimal()
+```
+**Patrón observado:** los hijos de madres con anemia tienen una prevalencia de anemia de 43,5 %, frente a 30,9 % en los hijos de madres sin anemia: 12,6 puntos más, es decir, alrededor de 1,4 veces más. Los 1 879 niños sin dato de la madre tienen una prevalencia de 31,7 %, muy similar a la de los hijos de madres sin anemia.
+
+**Conclusión provisional:** la evidencia **apoya la H4**. La anemia materna se asocia con la anemia del niño, probablemente porque comparten la dieta del hogar y las condiciones socioeconómicas, y porque las reservas de hierro del recién nacido dependen del estado de la madre durante el embarazo. La anemia de la madre se incluirá como predictor. Los niños sin dato de la madre se conservan con la categoría `madre_situacion`: su prevalencia no difiere mucho de la del resto, por lo que su exclusión no habría cambiado mucho la estimación, pero sí habría reducido la muestra en 1 879 niños.
+
+## H5. Condiciones de la vivienda
+```{r}
+datos |>
+  select(anemia, peso, agua_red, desague_red, combustible_solido) |>
+  pivot_longer(c(agua_red, desague_red, combustible_solido),
+               names_to = "condicion", values_to = "tiene") |>
+  filter(!is.na(tiene)) |>
+  mutate(condicion = recode(condicion,
+                            agua_red = "Agua por red pública",
+                            desague_red = "Desagüe por red pública",
+                            combustible_solido = "Cocina con leña, carbón o bosta"),
+         tiene = if_else(tiene == 1, "Sí", "No")) |>
+  prevalencia(condicion, tiene) |>
+  ggplot(aes(condicion, prevalencia, fill = tiene)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = round(prevalencia, 1)),
+            position = position_dodge(0.9), hjust = -0.2, size = 3.5) +
+    coord_flip() +
+  labs(title = "Anemia según condiciones de la vivienda",
+       x = NULL, y = "Prevalencia de anemia (%)", fill = "Condición presente") +
+  expand_limits(y = 50) +
+  theme_minimal()
+```
+**Patrón observado:** los niños de hogares sin desagüe por red pública tienen una prevalencia de 41,3 %, frente a 29,4 % en los que sí lo tienen. Los que cocinan con leña, carbón o bosta tienen 43,0 %, frente a 31,0 %. En cambio, el agua por red pública muestra una diferencia pequeña (33,0 % frente a 35,5 %).
+
+**Conclusión provisional:** la evidencia **apoya parcialmente la H5**. El desagüe y el combustible se asocian claramente con la anemia; el agua casi no marca diferencia, posiblemente porque la conexión a la red no garantiza agua segura. Estas condiciones están ligadas a la pobreza y al área rural, por lo que el modelo multivariado mostrará si mantienen su capacidad predictiva.
+
+## H6. Estabilidad entre 2024 y 2025
+```{r}
+datos |>
+  group_by(Año = anio) |>
+  summarise(
+    `Niños`                     = n(),
+    `Anemia (%)`                = 100 * weighted.mean(anemia, peso),
+    `Rural (%)`                 = 100 * weighted.mean(area == "Rural", peso),
+    `≥ 3500 m (%)`              = 100 * weighted.mean(altitud_cat == ">=3500", peso),
+    `Quintil más pobre (%)`     = 100 * weighted.mean(quintil == "Q1 más pobre", peso),
+    `Desnutrición crónica (%)`  = 100 * weighted.mean(desnutricion_cronica, peso, na.rm = TRUE),
+    `Madre con anemia (%)`      = 100 * weighted.mean(anemia_madre, peso, na.rm = TRUE)) |>
+  mutate(across(-c(Año, `Niños`), ~ round(.x, 1))) |>
+  knitr::kable()
+```
+**Patrón observado:** la prevalencia de anemia fue prácticamente igual en ambos años (33,8 % en 2024 y 33,6 % en 2025). La distribución de los principales predictores también fue estable: niños rurales (29,6 % y 30,4 %), que viven a 3 500 m o más (7,5 % y 7,7 %), del quintil más pobre (29,5 % y 30,1 %), con desnutrición crónica (12,4 % y 12,3 %) y con madre anémica (23,4 % y 22,9 %). Ninguna diferencia supera un punto porcentual. La única variación relevante observada en el EDA es la menor prevalencia de anemia en las zonas a 3 500 m o más en 2025 (62,5 % frente a 58,5 %).
+
+**Conclusión provisional:** la evidencia **apoya la H6**. La población y la distribución de los predictores son estables entre años, por lo que la validación del modelo entrenado con 2024 en los datos de 2025 medirá principalmente su estabilidad temporal y no un cambio en la población. Sin embargo, la caída de la anemia en las zonas de mayor altitud podría afectar la calibración del modelo en ese grupo, por lo que su desempeño se evaluará por separado.
+
+
+# Hallazgos y decisiones para la Unidad II
+
+- **Variable respuesta:** `anemia` (HC57). La prevalencia ponderada es de 33,8 % (2024) y 33,6 % (2025). La variable `anemia_oms` (HC57A) se usará solo como análisis de sensibilidad.
+- **Variables que pasan al modelado:** edad, sexo, desnutrición crónica, peso para la talla, orden de nacimiento, diarrea; edad, IMC, educación y anemia de la madre; `madre_situacion`; quintil de riqueza, agua, desagüe y combustible de cocina; área, altitud (en categorías) y departamento. Queda pendiente unir la pobreza distrital por UBIGEO.
+- **Variables excluidas como predictores:** la hemoglobina (`hb_ajustada`), porque define la anemia (fuga de información), y el consumo de hierro (`hierro_7d`), por causalidad inversa: los niños con anemia reciben hierro.
+- **Desbalance de clases:** alrededor de 1 de cada 3 niños tiene anemia. Es un desbalance moderado que se considerará al elegir el umbral de clasificación y las métricas (sensibilidad, AUC).
+- **Colinealidad:** el área de residencia y el quintil de riqueza están muy relacionados (el 77 % de los niños rurales pertenece al quintil más pobre).
+- **Relaciones no lineales:** la anemia sube con fuerza solo por encima de los 2 500 m y disminuye con la edad, por lo que estas variables se usarán en categorías o con modelos que capten relaciones no lineales.
+- **Faltantes:** se imputarán dentro de la validación cruzada para evitar fuga de información entre entrenamiento y prueba.
+- **Diseño muestral:** se conservan `peso`, `conglomerado` y `estrato` para las estimaciones ponderadas y la validación cruzada por conglomerado.
+- **Validación temporal:** las dos ediciones son comparables (H6), pero el desempeño del modelo se reportará por separado según área y altitud.
+
+# Declaración de uso de IA generativa
+
+Se utilizó Claude (Anthropic) como apoyo para estructurar el código de limpieza y del análisis exploratorio en R . Todas las cifras se verificaron ejecutando el código sobre los microdatos de la ENDES, y las decisiones metodológicas fueron revisadas por el equipo.
+
+# Referencias
+
+Gonzales, G. F., & Suarez Moreno, V. J. (2024). Hemoglobin levels for determining anemia: New World Health Organization guidelines and adaptation of the national standard. *Revista Peruana de Medicina Experimental y Salud Pública, 41*(2), 102–104. https://doi.org/10.17843/rpmesp.2024.412.13894
+
+Instituto Nacional de Estadística e Informática. (2025). *Encuesta Demográfica y de Salud Familiar – ENDES 2024* [Conjunto de datos]. https://proyectos.inei.gob.pe/microdatos/
+
+Instituto Nacional de Estadística e Informática. (2026). *Encuesta Demográfica y de Salud Familiar – ENDES 2025* [Conjunto de datos]. https://proyectos.inei.gob.pe/microdatos/ 

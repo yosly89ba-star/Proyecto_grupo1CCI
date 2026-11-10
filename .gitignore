@@ -48,8 +48,10 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 
+
 # Datos: no se suben al repositorio
 data/raw/
 data/processed/
 *.csv
 *.xlsx
+!docs/diccionario_datos.csv
