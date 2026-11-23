@@ -42,24 +42,29 @@ Los diccionarios de variables del INEI están en `docs/diccionarios_inei/`, solo
 ```
 Proyecto_grupo1CCI/
 ├── R/
-│   ├── 00_paquetes.R             # paquetes del proyecto
-│   ├── union_2024.R              # une los 7 archivos de 2024 → datos_2024.csv
-│   ├── union_2025.R              # une los 7 archivos de 2025 → datos_2025.csv
-│   └── union_2024_2025.R         # apila los dos años → datos_2024_2025.csv
+│   ├── 00_paquetes.R                # paquetes del proyecto
+│   ├── union_2024.R                 # une los 7 archivos de 2024 → datos_2024.csv
+│   ├── union_2025.R                 # une los 7 archivos de 2025 → datos_2025.csv
+│   └── union_2024_2025.R            # apila los dos años → datos_2024_2025.csv
 ├── analysis/
-│   ├── exploración inicial.qmd   # protocolo: limpieza, registro de decisiones y EDA
-│   └── exploración inicial.html  # reporte renderizado
+│   ├── exploración inicial.qmd      # protocolo: limpieza, registro de decisiones y EDA
+│   └── exploración inicial.html     # reporte renderizado
+├── notebooks/
+│   ├── S3S4_parte2.ipynb            # comparación de modelos (árbol, Elastic Net, RF, XGBoost, LightGBM, stacking)
+│   └── S56_red_con_mis_datos.ipynb  # red neuronal densa frente a Elastic Net y Random Forest
 ├── data/
-│   ├── raw/                      # microdatos del INEI y pobreza distrital (no se versionan)
-│   └── processed/                # bases generadas por el código (no se versionan)
+│   ├── raw/                         # microdatos del INEI y pobreza distrital (no se versionan)
+│   └── processed/                   # bases generadas por el código (no se versionan)
 ├── docs/
-│   ├── diccionario_datos.csv     # diccionario del dataset curado
-│   └── diccionarios_inei/        # diccionarios PDF del INEI, 2024 y 2025
-├── renv.lock                     # versiones exactas de R y paquetes
+│   ├── diccionario_datos.csv        # diccionario del dataset curado
+│   └── diccionarios_inei/           # diccionarios PDF del INEI, 2024 y 2025
+├── renv.lock                        # versiones exactas de R y paquetes
 └── README.md
 ```
 
 ## Cómo reproducir
+
+### 1. Preparación de datos (R)
 
 1. Clonar el repositorio y abrir `Proyecto_grupo1CCI.Rproj` en RStudio.
 2. Ejecutar `renv::restore()` para instalar las versiones de `renv.lock`.
@@ -77,7 +82,23 @@ Proyecto_grupo1CCI/
    - guarda el dataset curado en `data/processed/anemia_curado.rds` (35 974 niños de 6 a 59 meses),
    - genera el análisis exploratorio de las hipótesis H1 a H7.
 
-Entorno: R 4.5.2; paquetes readr, dplyr, tidyr, ggplot2, knitr y perupobreza2018 (versiones en `renv.lock`).
+### 2. Modelado (Python, Google Colab)
+
+1. Crear la versión anonimizada para el modelado, en la consola de R:
+   ```r
+   library(dplyr); library(readr)
+   datos <- readRDS("data/processed/anemia_curado.rds")
+   datos |>
+     select(-id_nino, -conglomerado, -estrato, -peso, -UBIGEO) |>
+     mutate(altitud_cat = recode(altitud_cat,
+                                 "<1000" = "0-999 m", "1000-2499" = "1000-2499 m",
+                                 "2500-3499" = "2500-3499 m", ">=3500" = "3500 m o mas")) |>
+     write_csv("data/processed/anemia_modelo.csv", na = "")
+   ```
+2. Subir `anemia_modelo.csv` a Google Drive y abrir los cuadernos de `notebooks/` en Colab.
+3. Variable respuesta: `anemia`. Columnas excluidas: `anio`, `hb_ajustada`, `anemia_oms`, `hierro_7d` y `z_implausible`. Semilla: 2026.
+
+Entorno: R 4.5.2 (readr, dplyr, tidyr, ggplot2, knitr y perupobreza2018; versiones en `renv.lock`) y Python en Google Colab (scikit-learn, XGBoost, LightGBM y Keras).
 
 ## Estado
 
@@ -87,7 +108,8 @@ Entorno: R 4.5.2; paquetes readr, dplyr, tidyr, ggplot2, knitr y perupobreza2018
 - [x] Integración de la pobreza distrital (por UBIGEO)
 - [x] Diccionario de datos y registro de decisiones
 - [x] Análisis exploratorio orientado a hipótesis (H1–H7)
-- [ ] Modelado: regresión logística y bosque aleatorio (entrenamiento 2024, validación 2025)
+- [x] Modelado: comparación de siete modelos y red neuronal (validación cruzada y prueba final)
+- [ ] Validación temporal: entrenamiento con 2024 y validación con 2025
 - [ ] Interpretación y comunicación
 
 Versión de cierre de la Unidad I: etiqueta `v1.0-unidad1`.
